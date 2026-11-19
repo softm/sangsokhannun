@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-11-19",
+  "sourcePolicy": "공식 기관 자료를 확인하여 수동 검토한 안내입니다. 자동 금융조회·법률판단·확정 신고세액을 제공하지 않습니다.",
+  "supportedScope": "2026년 국내 거주자의 자녀가 있는 단순 상속. 사전증여·상속포기·유언·특수재산·해외관계가 없고 전체 재산·채무가 확인된 경우에 기본 공제만 반영합니다.",
+  "deadlinePolicy": "인지일과 사망일을 분리하고 월 단위로 계산합니다. 휴일·법원 연장·특별한정승인 등 예외는 반영하지 않은 참고 날짜로 표시합니다.",
+  "sources": [
+    {
+      "id": "tax-flow",
+      "title": "국세청 · 상속세 세액계산 흐름도",
+      "url": "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7720&mi=2274",
+      "checkedAt": "2026-11-19"
+    },
+    {
+      "id": "deductions",
+      "title": "국세청 · 상속공제",
+      "url": "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7956",
+      "checkedAt": "2026-11-19"
+    },
+    {
+      "id": "tax-deadline",
+      "title": "국세청 · 상속세 신고납부기한",
+      "url": "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7719&mi=2273",
+      "checkedAt": "2026-11-19"
+    },
+    {
+      "id": "safe-inheritance",
+      "title": "정부24 · 안심상속 재산조회 통합신청",
+      "url": "https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=17400000001",
+      "checkedAt": "2026-11-19"
+    },
+    {
+      "id": "acceptance",
+      "title": "생활법령정보 · 상속 한정승인의 개념 및 방법",
+      "url": "https://www.easylaw.go.kr/CSP/CnpClsMain.laf?ccfNo=4&cciNo=3&cnpClsNo=1&csmSeq=255",
+      "checkedAt": "2026-11-19"
+    },
+    {
+      "id": "shares",
+      "title": "국가법령정보센터 · 민법 제1009조 법정상속분",
+      "url": "https://www.law.go.kr/lsLinkCommonInfo.do?lsJoLnkSeq=1017151947",
+      "checkedAt": "2026-11-19"
+    },
+    {
+      "id": "periods",
+      "title": "국가법령정보센터 · 민법 제157조·제160조·제161조 기간 계산",
+      "url": "https://www.law.go.kr/LSW/lsLawLinkInfo.do?chrClsCd=010202&lsId=001706&lsJoLnkSeq=900155596&print=print",
+      "checkedAt": "2026-11-19"
+    }
+  ]
+}

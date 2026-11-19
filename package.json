@@ -1,0 +1,14 @@
+{
+  "name": "sangsokhannun",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "상속한눈 — 가족의 재산·채무와 상속 준비를 정리하는 웹앱",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/check.mjs",
+    "build": "node scripts/build.mjs",
+    "start": "python3 -m http.server 8080 --bind 127.0.0.1"
+  }
+}
