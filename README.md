@@ -7,7 +7,7 @@
 - 자료 확인 상태: https://softm.github.io/sangsokhannun/data-status.html
 - 개인정보 안내: https://softm.github.io/sangsokhannun/privacy.html
 
-![상속한눈 초기 홈 화면](docs/screenshots/home.png)
+![상속한눈 초기 홈 화면](docs/screenshots/home.jpg)
 
 ## 초기 기능
 
