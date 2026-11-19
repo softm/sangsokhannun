@@ -1,5 +1,5 @@
 import {createInitialState,validateState,summarizeEstate,calculateShares,calculateTax,calculateDeadlines,TASKS,SOURCES} from './domain.js';
-import {STORAGE_KEY,MAX_BACKUP_BYTES,createVault,seal,openVault,storedVault,storeVault,removeVault} from './vault.js';
+import {STORAGE_KEY,MAX_BACKUP_BYTES,createVault,seal,openVault,parseEnvelope,storedVault,storeVault,removeVault} from './vault.js';
 
 const root=document.querySelector('#app'), dialog=document.querySelector('#dialog'), toastEl=document.querySelector('#toast');
 const nav=[['home','home','홈'],['ledger','wallet','재산·채무'],['calculate','calculator','계산'],['checklist','checklist','서류·일정'],['settings','settings','설정']];
@@ -51,7 +51,51 @@ function render(){
   root.replaceChildren(h('div',{class:'app-shell'},side,h('div',{class:'workspace'},top,main)),bottom,renderPrintReport());
 }
 function metric(label,value,detail,name,featured=false,blank=false){return h('div',{class:'metric'+(featured?' featured':'')},h('div',{class:'metric-label'},label,icon(name)),h('p',{class:'metric-value'+(blank?' empty':'')},value),h('small',{},detail));}
-function summaryMetrics(){const s=summarizeEstate(state);return h('div',{class:'metrics'},metric('입력된 재산',s.assetCount?shortMoney(s.assets):'등록해 주세요',s.assetCount?`${s.assetCount}개 항목 · 소유지분 반영`:'부동산·예금·받을 돈','wallet',false,!s.assetCount),metric('입력된 채무',s.debtCount?shortMoney(s.debts):'확인해 주세요',s.debtCount?`${s.debtCount}개 항목`:'대출·보증금·빌린 돈','coins',false,!s.debtCount),metric('순재산 참고액',s.complete?shortMoney(s.net):'확인 중',s.complete?'목록 확인 완료 기준':s.unknownCount?`금액 미확인 ${s.unknownCount}개`:'전체 목록 확인 후 표시','shield',true,!s.complete));}
+function inventoryDisplay(kind, summary) {
+  const records = state[kind];
+  const name = kind === 'assets' ? '재산' : '채무';
+  const known = records.filter(item => item.amount !== null);
+  const unknownCount = records.length - known.length;
+  const unverifiedCount = known.filter(item => !item.verified).length;
+  const amount = kind === 'assets' ? summary.assets : summary.debts;
+  if (!records.length) {
+    return {
+      label:'입력된 ' + name,
+      value:kind === 'assets' ? '등록해 주세요' : '확인해 주세요',
+      detail:kind === 'assets' ? '부동산·예금·받을 돈' : '대출·보증금·빌린 돈',
+      print:'등록 항목 없음 · 전체 목록 확인 ' + (state.case.inventoryComplete ? '표시됨' : '필요'),
+      blank:true
+    };
+  }
+  if (!known.length) {
+    return {
+      label:name + ' 금액', value:'금액 미확인',
+      detail:`${records.length}개 항목 모두 금액 미확인`,
+      print:`금액 미확인 (${records.length}개 항목 모두 미확인)`, blank:true
+    };
+  }
+  const detail = unknownCount
+    ? `${known.length}개 금액 입력 · 미확인 ${unknownCount}개`
+    : `${records.length}개 항목${kind === 'assets' ? ' · 소유지분 반영' : ''}`;
+  const caveat = unverifiedCount ? ` · 추정·확인 전 ${unverifiedCount}개` : '';
+  return {
+    label:unknownCount ? name + ' 입력금액 소계' : '입력된 ' + name,
+    value:shortMoney(amount), detail:detail + caveat,
+    print:`${money(amount)}${unknownCount ? ` (입력 금액 소계 · 미확인 ${unknownCount}개 제외)` : ''}${caveat}`,
+    blank:false
+  };
+}
+function summaryMetrics() {
+  const summary = summarizeEstate(state);
+  const assets = inventoryDisplay('assets', summary), debts = inventoryDisplay('debts', summary);
+  return h('div', {class:'metrics'},
+    metric(assets.label, assets.value, assets.detail, 'wallet', false, assets.blank),
+    metric(debts.label, debts.value, debts.detail, 'coins', false, debts.blank),
+    metric('순재산 참고액', summary.complete ? shortMoney(summary.net) : '확인 중',
+      summary.complete ? '목록 확인 완료 기준' : summary.unknownCount ? `금액 미확인 ${summary.unknownCount}개` : '전체 목록 확인 후 표시',
+      'shield', true, !summary.complete)
+  );
+}
 function renderHome(){
   const result=h('div');const process=state.case.mode==='process';
   const art=h('div',{class:'hero-illustration','aria-hidden':'true'},h('div',{class:'paper back'}),h('div',{class:'paper front'},icon('document'),h('span',{class:'paper-line'}),h('span',{class:'paper-line'}),h('span',{class:'paper-line short'})),h('span',{class:'hero-check'},icon('check')));
@@ -110,12 +154,127 @@ function passwordForm({description,confirm=false,actionLabel,onSubmit}){const pa
 function enableVaultDialog(){if(readStored()&&!persistent){showDialog('기존 저장 자료가 있습니다',h('div',{},h('p',{},'이 브라우저에 다른 암호화 자료가 남아 있습니다. 현재 임시 자료를 백업한 뒤 기존 자료를 열거나, 전체 삭제 후 새로 저장하세요.'),h('div',{class:'form-actions'},button('백업 내보내기',exportDialog),button('기존 자료 열기',()=>{dialog.close();locked=true;render();},'primary'))));return;}showDialog('비밀번호로 기기에 저장',passwordForm({description:'비밀번호와 암호화 키는 저장하지 않습니다. 현재 브라우저의 저장 공간에만 암호화 자료를 보관합니다.',confirm:true,actionLabel:'암호화 저장',onSubmit:async password=>{const generation=vaultGeneration;const created=await createVault(state,password);assertGeneration(generation);if(storedVault()&&!persistent)throw new Error('다른 창에 저장된 자료가 있습니다. 먼저 기존 자료를 확인해 주세요.');storeVault(created.envelope);session=created.session;persistent=true;dirty=false;vaultGeneration++;dialog.close();render();toast('이 기기에 암호화해 저장했습니다.');}}));}
 async function lockVault(){if(locking||modalBusy)return;locking=true;try{while(true){const pending=persistChain;await pending;if(pending===persistChain)break;}if(dirty){toast('저장 상태를 확인하거나 백업한 뒤 잠가 주세요.');return;}vaultGeneration++;session=null;persistent=false;state=createInitialState();locked=true;render();}finally{locking=false;}}
 function exportDialog(){showDialog('암호화 백업 내보내기',passwordForm({description:'백업 파일을 보호할 비밀번호를 정하세요. 기기 저장 비밀번호와 달라도 됩니다.',confirm:true,actionLabel:'백업 만들기',onSubmit:async password=>{const generation=vaultGeneration;const {envelope}=await createVault(state,password);assertGeneration(generation);const content=JSON.stringify(envelope),filename='sangsokhannun-backup-'+new Date().toISOString().slice(0,10)+'.json';if(nativeMessage({type:'exportBackup',filename,content})){dialog.close();toast('파일을 저장할 위치를 선택해 주세요.');return;}const blob=new Blob([content],{type:'application/json'}),url=URL.createObjectURL(blob),a=h('a',{href:url,download:filename});document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);dialog.close();toast('암호화 백업 파일을 내려받았습니다.');}}));}
-function importDialog(){const file=h('input',{type:'file',accept:'.json,application/json',required:true});const password=h('input',{type:'password',required:true,minlength:'8',autocomplete:'current-password'}),ack=h('input',{type:'checkbox',required:true}),error=h('p',{class:'form-error',role:'alert'}),submit=h('button',{type:'submit',class:'btn btn-primary'},'백업 열기');showDialog('백업 가져오기',h('form',{onsubmit:async e=>{e.preventDefault();if(modalBusy)return;error.textContent='';const selected=file.files[0];if(!selected)return;if(selected.size>MAX_BACKUP_BYTES){error.textContent='백업 파일은 2MB 이하만 가져올 수 있습니다.';return;}modalBusy=true;submit.disabled=true;const generation=vaultGeneration;try{const opened=await openVault(await selected.text(),password.value,validateState);await persistChain;assertGeneration(generation);if(persistent&&session){const envelope=await seal(opened.state,session);assertGeneration(generation);storeVault(envelope);}state=opened.state;revision++;dirty=!persistent;password.value='';dialog.close();render();toast(persistent?'백업을 가져와 이 기기에 저장했습니다.':'백업을 열었습니다. 현재 임시 사용 중입니다.');}catch(err){error.textContent=err.message;}finally{modalBusy=false;submit.disabled=false;}}},h('p',{class:'dialog-intro'},'현재 열린 자료를 백업 내용으로 교체합니다. 현재 자료를 보관하려면 먼저 백업하세요.'),field('상속한눈 백업 파일',file),field('백업 비밀번호',password),h('label',{class:'checkbox-row'},ack,h('span',{},'현재 열린 자료가 백업 내용으로 교체되는 것을 확인했습니다.')),error,h('div',{class:'form-actions'},button('취소',modalClose),submit)));}
+function importDialog() {
+  const native = Boolean(window.HannunNative && typeof window.HannunNative.postMessage === 'function');
+  const file = h('input', {type:'file',accept:'.json,application/json',required:true});
+  const password = h('input', {type:'password',required:true,minlength:'8',autocomplete:'current-password'});
+  const ack = h('input', {type:'checkbox',required:true});
+  const error = h('p', {class:'form-error',role:'alert'});
+  const status = h('p', {class:'field-help',role:'status'}, '아직 선택한 파일이 없습니다.');
+  const submit = h('button', {type:'submit',class:'btn btn-primary'}, '백업 열기');
+  let nativeContent = null, requestPending = false;
+  const choose = button('백업 파일 선택', () => {
+    if (requestPending || modalBusy) return;
+    nativeContent = null;
+    error.textContent = '';
+    status.textContent = '기기에서 암호화 백업 파일을 선택해 주세요.';
+    requestPending = true;
+    choose.disabled = true;
+    if (!nativeMessage({type:'importBackup'})) {
+      requestPending = false;
+      choose.disabled = false;
+      error.textContent = '기기의 파일 선택 기능을 열 수 없습니다. 앱을 다시 열어 주세요.';
+    }
+  }, 'secondary', 'folder');
+  const form = h('form', {onsubmit:async event => {
+    event.preventDefault();
+    if (modalBusy) return;
+    error.textContent = '';
+    const selected = native ? null : file.files[0];
+    if (native ? !nativeContent || requestPending : !selected) {
+      error.textContent = '먼저 상속한눈 암호화 백업 파일을 선택해 주세요.';
+      return;
+    }
+    if (!native && selected.size > MAX_BACKUP_BYTES) {
+      error.textContent = '백업 파일은 2MB 이하만 가져올 수 있습니다.';
+      return;
+    }
+    modalBusy = true;
+    submit.disabled = true;
+    choose.disabled = true;
+    const generation = vaultGeneration;
+    try {
+      const content = native ? nativeContent : await selected.text();
+      const opened = await openVault(content, password.value, validateState);
+      await persistChain;
+      assertGeneration(generation);
+      if (persistent && session) {
+        const envelope = await seal(opened.state, session);
+        assertGeneration(generation);
+        storeVault(envelope);
+      }
+      state = opened.state;
+      revision++;
+      dirty = !persistent;
+      password.value = '';
+      nativeContent = null;
+      dialog.close();
+      render();
+      toast(persistent ? '백업을 가져와 이 기기에 저장했습니다.' : '백업을 열었습니다. 현재 임시 사용 중입니다.');
+    } catch (err) {
+      error.textContent = err.message;
+    } finally {
+      modalBusy = false;
+      submit.disabled = false;
+      choose.disabled = requestPending;
+    }
+  }},
+    h('p', {class:'dialog-intro'}, '현재 열린 자료를 백업 내용으로 교체합니다. 현재 자료를 보관하려면 먼저 백업하세요.'),
+    native ? h('div', {class:'field'}, h('p', {}, '상속한눈 백업 파일'), choose, status) : field('상속한눈 백업 파일', file),
+    field('백업 비밀번호', password),
+    h('label', {class:'checkbox-row'}, ack, h('span', {}, '현재 열린 자료가 백업 내용으로 교체되는 것을 확인했습니다.')),
+    error,
+    h('div', {class:'form-actions'}, button('취소', modalClose), submit)
+  );
+  showDialog('백업 가져오기', form);
+  if (!native || !dialog.contains(form)) return;
+
+  // Native receives only a user-selected encrypted file. No content:// URL or
+  // plaintext state crosses this boundary. Ignore replies after this form closes.
+  const replyHandler = event => {
+    if (!dialog.open || !dialog.contains(form) || !requestPending || modalBusy) return;
+    try {
+      if (typeof event.data !== 'string' || event.data.length > MAX_BACKUP_BYTES * 2 + 1024) throw new Error('파일 응답이 너무 크거나 올바르지 않습니다.');
+      const message = JSON.parse(event.data);
+      if (!message || typeof message !== 'object' || Array.isArray(message)) throw new Error('파일 응답 형식이 올바르지 않습니다.');
+      if (!['backupSelected','backupCancelled','backupError'].includes(message.type)) return;
+      requestPending = false;
+      choose.disabled = false;
+      if (message.type === 'backupSelected') {
+        if (typeof message.content !== 'string' || new Blob([message.content]).size > MAX_BACKUP_BYTES) throw new Error('백업 파일은 2MB 이하만 가져올 수 있습니다.');
+        parseEnvelope(message.content);
+        nativeContent = message.content;
+        status.textContent = '암호화 백업 파일을 선택했습니다. 백업 비밀번호를 입력해 주세요.';
+      } else if (message.type === 'backupCancelled') {
+        status.textContent = '파일 선택을 취소했습니다.';
+      } else {
+        error.textContent = typeof message.message === 'string' ? message.message.slice(0,200) : '백업 파일을 읽을 수 없습니다.';
+        status.textContent = '다른 암호화 백업 파일을 선택해 주세요.';
+      }
+    } catch (err) {
+      requestPending = false;
+      choose.disabled = false;
+      nativeContent = null;
+      error.textContent = err.message;
+      status.textContent = '상속한눈에서 만든 암호화 백업 파일을 선택해 주세요.';
+    }
+  };
+  window.HannunNative.onmessage = replyHandler;
+  const cleanup = () => {
+    if (dialog.open && dialog.contains(form)) return;
+    nativeContent = null;
+    requestPending = false;
+    password.value = '';
+    if (window.HannunNative?.onmessage === replyHandler) window.HannunNative.onmessage = null;
+    dialog.removeEventListener('close', cleanup);
+  };
+  dialog.addEventListener('close', cleanup);
+}
 function deleteAllDialog(){const confirm=h('input',{type:'text',placeholder:'삭제',autocomplete:'off',required:true}),error=h('p',{class:'form-error',role:'alert'});showDialog('모든 자료를 삭제할까요?',h('form',{onsubmit:async e=>{e.preventDefault();if(modalBusy)return;if(confirm.value!=='삭제'){error.textContent='확인란에 ‘삭제’를 입력해 주세요.';return;}modalBusy=true;await persistChain;try{removeVault();vaultGeneration++;session=null;persistent=false;locked=false;state=createInitialState();dirty=false;dialog.close();render();toast('이 브라우저의 상속한눈 자료를 삭제했습니다.');}catch(err){error.textContent=err.message;}finally{modalBusy=false;}}},h('p',{class:'dialog-intro'},'현재 자료와 이 브라우저의 암호화 저장 자료가 삭제됩니다. 별도로 내려받은 백업 파일은 남아 있습니다. 이 작업은 되돌릴 수 없습니다.'),field('확인을 위해 ‘삭제’를 입력해 주세요.',confirm),error,h('div',{class:'form-actions'},button('취소',modalClose),h('button',{class:'btn btn-danger',type:'submit'},'전체 삭제'))));}
 function renderLock(){setSensitive(true);const password=h('input',{type:'password',required:true,minlength:'8',autocomplete:'current-password',placeholder:'저장할 때 정한 비밀번호'}),error=h('p',{class:'form-error',role:'alert'}),submit=h('button',{type:'submit',class:'btn btn-primary'},'잠금 해제');const form=h('form',{onsubmit:async e=>{e.preventDefault();if(modalBusy)return;modalBusy=true;submit.disabled=true;error.textContent='';const generation=vaultGeneration;try{const raw=readStored();if(!raw)throw new Error('저장된 자료를 찾을 수 없습니다.');const opened=await openVault(raw,password.value,validateState);assertGeneration(generation);state=opened.state;session=opened.session;persistent=true;locked=false;dirty=false;password.value='';render();}catch(err){error.textContent=err.message;}finally{modalBusy=false;submit.disabled=false;}}},field('비밀번호',password),error,submit);root.replaceChildren(h('main',{class:'lock-screen'},h('img',{src:'./assets/icon.svg',alt:''}),h('h1',{},'저장한 자료를 열어볼까요?'),h('p',{},'이 브라우저에 암호화된 자료가 있습니다. 비밀번호로 잠금을 해제하세요.'),form,button('기존 자료를 두고 임시로 시작',()=>{if(modalBusy)return;locked=false;state=createInitialState();dirty=false;render();},'subtle'),h('p',{class:'small'},'비밀번호는 복구할 수 없습니다. 기존 자료를 남겨 둔 채 임시로 사용하거나, 설정에서 전체 삭제할 수 있습니다.')));}
 function printReport(){setSensitive(true);if(nativeMessage({type:'print'}))return;window.print();refreshSensitive();}
 function table(headers,rows){return h('table',{},h('thead',{},h('tr',{},headers.map(x=>h('th',{},x)))),h('tbody',{},rows.map(row=>h('tr',{},row.map(x=>h('td',{},x))))));}
-function renderPrintReport(){const summary=summarizeEstate(state),shares=calculateShares(state.case),tax=calculateTax(state),dates=calculateDeadlines(state.case);const section=h('section',{class:'print-report'},h('h1',{},'상속한눈 · 상담 준비 자료'),h('p',{},'작성일 '+new Intl.DateTimeFormat('ko-KR',{dateStyle:'long',timeZone:'Asia/Seoul'}).format(new Date())),h('p',{class:'muted'},'사용자가 입력한 자료를 정리한 참고용 문서입니다. 재산조회 결과나 법률·세무 신고서가 아닙니다.'),h('h2',{},'가족관계와 기준일'),h('p',{},`배우자 ${state.case.spouse?'있음':'없음 / 미확인'} · 자녀 ${state.case.children}명`),h('p',{},'상속개시일 '+(state.case.deathDate||'미입력')+' · 상속개시 사실을 안 날 '+(state.case.knownDate||'미입력')),h('h2',{},'재산·채무 정리'),h('p',{},`입력된 재산 ${money(summary.assets)} · 입력된 채무 ${money(summary.debts)} · 순재산 참고액 ${summary.complete?money(summary.net):'전체 목록 확인 중'}`),h('p',{},`금액 미확인 ${summary.unknownCount}개 · 확인 전 항목 ${summary.unverifiedCount}개`));for(const kind of ['assets','debts']){section.append(h('h3',{},kind==='assets'?'재산 목록':'채무 목록'));const list=state[kind];section.append(list.length?table(['항목','종류','전체 금액','지분','확인 상태'],list.map(r=>[r.label,(kind==='assets'?assetCategories:debtCategories).find(([id])=>id===r.category)?.[1]||r.category,money(r.amount),r.share+'%',r.amount===null?'금액 미확인':r.verified?'확인 완료':'추정·확인 전'])):h('p',{},'등록된 항목 없음'))}
+function renderPrintReport(){const summary=summarizeEstate(state),shares=calculateShares(state.case),tax=calculateTax(state),dates=calculateDeadlines(state.case);const section=h('section',{class:'print-report'},h('h1',{},'상속한눈 · 상담 준비 자료'),h('p',{},'작성일 '+new Intl.DateTimeFormat('ko-KR',{dateStyle:'long',timeZone:'Asia/Seoul'}).format(new Date())),h('p',{class:'muted'},'사용자가 입력한 자료를 정리한 참고용 문서입니다. 재산조회 결과나 법률·세무 신고서가 아닙니다.'),h('h2',{},'가족관계와 기준일'),h('p',{},`배우자 ${state.case.spouse?'있음':'없음 / 미확인'} · 자녀 ${state.case.children}명`),h('p',{},'상속개시일 '+(state.case.deathDate||'미입력')+' · 상속개시 사실을 안 날 '+(state.case.knownDate||'미입력')),h('h2',{},'재산·채무 정리'),h('p',{},`재산: ${inventoryDisplay('assets',summary).print} / 채무: ${inventoryDisplay('debts',summary).print} / 순재산 참고액: ${summary.complete?money(summary.net):'전체 목록 확인 중'}`),h('p',{},`금액 미확인 ${summary.unknownCount}개 · 확인 전 항목 ${summary.unverifiedCount}개`));for(const kind of ['assets','debts']){section.append(h('h3',{},kind==='assets'?'재산 목록':'채무 목록'));const list=state[kind];section.append(list.length?table(['항목','종류','전체 금액','지분','확인 상태'],list.map(r=>[r.label,(kind==='assets'?assetCategories:debtCategories).find(([id])=>id===r.category)?.[1]||r.category,money(r.amount),r.share+'%',r.amount===null?'금액 미확인':r.verified?'확인 완료':'추정·확인 전'])):h('p',{},'등록된 항목 없음'))}
   section.append(h('h2',{},'참고 계산'),h('p',{},shares.supported?shares.shares.map(s=>s.label+' '+s.fraction).join(' / '):shares.reason),h('p',{},tax.supported?'기본 공제 기준 참고 산출세액: '+money(tax.estimatedTax):'세금 계산 보류: '+tax.reason));if(tax.supported)section.append(h('p',{class:'muted'},[...(tax.assumptions||[]),...(tax.excluded||[])].join(' · ')));
   section.append(h('h2',{},'진행 상태'),table(['할 일','상태'],TASKS.map(t=>[t.label,state.tasks[t.id]?'사용자 완료 표시':'미완료'])));if(dates.length)section.append(h('h2',{},'참고 기한'),table(['항목','날짜','기준·유의사항'],dates.map(d=>[d.label,d.date,d.basis+' '+d.note])));section.append(h('h2',{},'상담 시 확인할 사항'),h('ul',{},h('li',{},'미확인 재산·채무 및 보증채무가 있는지 확인'),h('li',{},'재산의 세무상 평가액, 채무 증빙, 과거 증여 내역 확인'),h('li',{},'특별한 가족관계·유언·상속포기 등 적용 조건 확인'),h('li',{},'기한의 공휴일·연장·예외 적용 여부 확인')),h('h2',{},'공식 안내'),h('ul',{},SOURCES.map(s=>h('li',{},s.title+' · '+s.url+' · 확인 '+s.checkedAt))));return section;}
 window.addEventListener('hashchange',()=>{tab=readTab();render();window.scrollTo(0,0);document.querySelector('#main')?.focus({preventScroll:true});});
